@@ -1,6 +1,4 @@
 import wx
-import imageio
-import os
 
 from getvid import SakuVid, VidNotFoundError
 from booruinfo import BooruInfoPanel
@@ -25,8 +23,8 @@ class SakutoolFrame(wx.Frame):
         # --- init GUI ---
         self.size = size = wx.Size(1024, 960)
         self.width, self.height = size.GetWidth(), size.GetHeight()
-        self.style = style = wx.NO_BORDER #| wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE_BOX
-        wx.Frame.__init__(self, parent=None, title='Sakutool v0 -- Niku.KK',
+        style = wx.NO_BORDER | wx.TRANSPARENT_WINDOW #| wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE_BOX
+        wx.Frame.__init__(self, parent=None, title='Sakutool v0.1 -- Niku.KK',
                           pos=wx.DefaultPosition, size=size,
                           style=style)
         self.Centre()
@@ -34,6 +32,7 @@ class SakutoolFrame(wx.Frame):
 
         self.panel = wx.Panel(self)
         self.panel.SetBackgroundColour(utils.BG_DARK)
+        # self.panel.SetFocusIgnoringChildren()
 
         sizer = wx.GridBagSizer(0, 5)
 
@@ -47,7 +46,7 @@ class SakutoolFrame(wx.Frame):
 
         info_height = self.height - image_height - 80 - 20 - 5
         self.cmd_panel = cmdline.CmdPanel(self.panel, self._print_status_bar, size=(200, info_height))
-        self.booru_panel = BooruInfoPanel(self.panel, size=(300, info_height))
+        self.booru_panel = BooruInfoPanel(self.panel, size=(200, info_height))
         self.info_play = wx.StaticText(self.panel, size=(300, info_height), label=' Playing Info \n\n')
         self.info_play.SetForegroundColour(utils.FG_LIGHT)
         self.info_play.SetFont(wx.Font(9, family=wx.FONTFAMILY_MODERN,
@@ -66,19 +65,14 @@ class SakutoolFrame(wx.Frame):
         sizer.Add(self.info_play, pos=(2, 2), flag=wx.LEFT | wx.EXPAND, border=5)
         sizer.Add(self.status_bar, pos=(3, 0), span=(1, 3), flag=wx.ALL, border=0)
 
-        self.renderer.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.timeline_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.cmd_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.booru_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.info_play.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.status_bar.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-
+        self._bind_all()
         # self.timer = wx.Timer(self)
         # self.Bind(wx.EVT_TIMER, self._ontimer, self.timer)
 
         # --- data
         # self.path = './asset/'
         self.vid = None
+        self._is_loading = False
 
         self.panel.SetSizerAndFit(sizer)
         self.build_cmd_panel()
@@ -89,7 +83,19 @@ class SakutoolFrame(wx.Frame):
         shiftdown = event.ShiftDown()
         keycode = cmdline.reformat(keycode, shiftdown)
         # print(keycode)
-        self.cmd_panel.operate(keycode)
+        if not self._is_loading:
+            self.cmd_panel.operate(keycode)
+
+    def _onmouse(self, event):
+        if event.ButtonDown():
+            self._drag_pos = event.GetPosition()
+        elif event.Dragging():
+            cur_pos = event.GetPosition()
+            frame_pos = self.GetPosition()
+            pos = (frame_pos[0] + cur_pos[0] - self._drag_pos[0], frame_pos[1] + cur_pos[1] - self._drag_pos[1])
+            self.SetPosition(pos)
+        elif event.ButtonUp():
+            pass
 
     def _booru_panel_refresh(self):
         if self.vid:
@@ -105,28 +111,31 @@ class SakutoolFrame(wx.Frame):
 
     # --- ---
     def _load_vid(self, booru_id):
-        self.renderer.stop()
+        self.renderer.pause()
+        flag = False
         try:
+            self._is_loading = True
+            self._print_status_bar('  L o a d i n g ...')
             self.vid = SakuVid(booru_id, self.path, maxsize=self.renderer.size)
+            self._is_loading = False
             self.booru_id = booru_id
 
+            self.renderer.stop()
             self.renderer.load_vid(self.vid)
             self._booru_panel_refresh()
+            flag = True
 
         except VidNotFoundError:
-            self.SetStatusText('Booru ID Not Found..')
+            self._is_loading = False
+            print('Booru ID Not Found..')
+
+        return flag
 
     # --- save
     def save_image(self):
         if self.vid:
             self.renderer.pause()
-            uri = self.path+'{}/'.format(self.vid.booru_id)
-            os.makedirs(uri, exist_ok=True)
-            index = self.vid.cur_frame_index
-            uri += '{}.jpg'.format(index)
-            if not os.path.exists(uri):
-                im = self.vid.vid_arr[index]
-                imageio.imwrite(uri=uri, im=im)
+            self.vid.save_frame()
             self.renderer.next_frame()
 
     # build menu
@@ -145,6 +154,23 @@ class SakutoolFrame(wx.Frame):
 
         self.cmd_panel.refresh_info()
         return
+
+    def _bind_all(self):
+        self.renderer.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.timeline_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.cmd_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.booru_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.info_play.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.status_bar.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.status_bar.Bind(wx.EVT_MOUSE_EVENTS, self._onmouse)
+    # def _unbind_all(self):
+        # self.renderer.Unbind(wx.EVT_KEY_DOWN)
+        # self.timeline_panel.Unbind(wx.EVT_KEY_DOWN)
+        # self.cmd_panel.Unbind(wx.EVT_KEY_DOWN)
+        # self.booru_panel.Unbind(wx.EVT_KEY_DOWN)
+        # self.info_play.Unbind(wx.EVT_KEY_DOWN)
+        # self.status_bar.Unbind(wx.EVT_KEY_DOWN)
+
 
     def exit(self):
         self.renderer.stop()

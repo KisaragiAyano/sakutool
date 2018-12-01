@@ -4,9 +4,9 @@ import utils
 
 class BooruInfoItem(wx.StaticText):
     def __init__(self, parent, label='', size=(300, 15), genre=None):
-        self.size = wx.Size(size)
+        self.size = size
         self.genre = genre
-        wx.StaticText.__init__(self, parent, label=label, size=size)
+        wx.StaticText.__init__(self, parent, label=label, style=wx.ST_ELLIPSIZE_END, size=size)
         self.SetFont(wx.Font(9, family=wx.FONTFAMILY_MODERN,
                              style=wx.FONTSTYLE_NORMAL, weight=wx.FONTWEIGHT_NORMAL))
         if not genre:
@@ -23,7 +23,7 @@ class BooruInfoItem(wx.StaticText):
 
 class BooruInfoPanel(wx.Panel):
     def __init__(self, parent, label='<<Booru Info>>', size=(300, 400)):
-        self.size = wx.Size(size)
+        self.size = size
         self.width, self.height = size
         wx.Panel.__init__(self, parent, size=size)
 
@@ -45,7 +45,7 @@ class BooruInfoPanel(wx.Panel):
         self.num_items = 1
         for genre in info:
             for data in info[genre]:
-                item = BooruInfoItem(self, label=data, genre=genre)
+                item = BooruInfoItem(self, label=data, size=(self.width, 15), genre=genre)
                 self.info_items[genre].append(item)
                 self.num_items += 1
                 self.sizer.Add(item, pos=(self.num_items-1, 0))

@@ -11,6 +11,7 @@ Desktop.ini
 dist
 build
 *.spec
+builder.cmd
 
 # pycharm
 .idea

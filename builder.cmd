@@ -1,2 +1,2 @@
-pyinstaller -w --clean sakutool.py -i icon.ico
+pyinstaller sakutool.py -i icon.ico -y
 pause

@@ -118,12 +118,14 @@ class CmdMenu(object):
 
 
 class CmdInput(object):
-    def __init__(self, parent, name, func, allow=None):
+    def __init__(self, parent, name, func, allow=None, min_len=1, max_len=5):
         assert parent
         self.parent = parent
         self.name = name
         self.func = func
         self.allow = is_num if not allow else allow
+        self.min_len = min_len
+        self.max_len = max_len
 
         self.items = {}
         self.opt = ''
@@ -135,16 +137,28 @@ class CmdInput(object):
             self.parent.esc()
             return self.parent, OptType.MENU
         elif is_back(key):
-            self.back()
-            return self, OptType.INPUT
+            if self.opt:
+                self.back()
+                return self, OptType.INPUT
+            else:
+                return self, OptType.NULL
         elif is_space(key):
-            self.func(self.opt)
-            self.parent.back()
-            self.esc()
-            return self.parent, OptType.MENU
+            if len(self.opt) < self.min_len:
+                return self, OptType.NULL
+            res = self.func(self.opt)
+            if res:
+                self.parent.back()
+                self.esc()
+                return self.parent, OptType.MENU
+            else:
+                self.opt = ''
+                return self, OptType.INPUT
         elif self.allow(key):
-            self.opt += to_string(key)
-            return self, OptType.INPUT
+            if len(self.opt) < self.max_len:
+                self.opt += to_string(key)
+                return self, OptType.INPUT
+            else:
+                return self, OptType.NULL
         return self, OptType.NULL
 
     def esc(self):

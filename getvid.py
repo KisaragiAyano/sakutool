@@ -1,9 +1,18 @@
 import requests
 import re
 import os
-import imageio
 import wx
 import numpy as np
+
+import imageio
+# import cv2
+
+
+imageio.plugins.ffmpeg.download()
+
+
+def save_image(uri, im):
+    imageio.imwrite(uri, im)
 
 
 class VidNotFoundError(IOError):
@@ -67,23 +76,29 @@ class SakuVid:
         self.cur_frame_index %= self.vid_frames
         return self.cur_frame()
 
+    def save_frame(self):
+        uri = self.path + '{}/'.format(self.booru_id)
+        os.makedirs(uri, exist_ok=True)
+        index = self.cur_frame_index
+        uri += '{}.jpg'.format(index)
+        if not os.path.exists(uri):
+            im = self.vid_arr[index]
+            save_image(uri=uri, im=im)
+
 
 def load_vid(booru_id, path='./asset/'):
     booru_info, html = get_booru_info(booru_id)
     vid_path = get_vid(booru_id, path, html)
     if not vid_path:
-        return None
+        return None, None
     vid_reader = imageio.get_reader(vid_path, 'ffmpeg')
 
-    # pylab.imshow(vid_reader.get_next_data())
-    # pylab.show()
     vid = []
     try:
         for img in vid_reader:
             vid.append(img)
     except RuntimeError as e:
         pass
-    # vid = [img for img in vid_reader]
     return vid, booru_info
 
 

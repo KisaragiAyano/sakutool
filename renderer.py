@@ -69,6 +69,7 @@ class Renderer(wx.Panel):
         self.vid = vid
         self._img_woff = (self.width - self.vid.w)/2
         self._img_hoff = (self.height - self.vid.h)/2
+        self.cur_frame()
         self._build_render_thread()
         self._fps = 24.
 
@@ -93,6 +94,7 @@ class Renderer(wx.Panel):
             self._is_playing = False
             self._render_thread.stop()
             self._render_thread.join(2.)
+            self._render_thread.stop()
             self._render_thread = None
 
     def _next_frame_render(self):
@@ -134,6 +136,9 @@ class Renderer(wx.Panel):
         # dc.Clear()
         dc.DrawBitmap(bitmap, self._img_woff, self._img_hoff)
         self.refresh_info()
+    def render_clear(self):
+        dc = wx.BufferedDC(wx.ClientDC(self), self._buffer)
+        dc.Clear()
 
     def refresh_info(self):
         info_str = ' Playing Info \n\n'
