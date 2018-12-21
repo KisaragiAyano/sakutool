@@ -41,3 +41,18 @@ class Configer:
 
     def get_asset_path(self):
         return self.asset_path
+
+
+def search(path, name):
+    import re
+    vids = []
+    for parent, dirNames, fileNames in os.walk(path):
+        for fileName in fileNames:
+            r = '^{}.*?\.webm'.format(name)
+            res = re.search(r, fileName)
+            r = '^{}.*?\.mp4'.format(name)
+            res = res or re.search(r, fileName)
+            if res:
+                vids.append(fileName.split('.')[0])
+    return vids
+

@@ -1,6 +1,6 @@
 import wx
 
-from getvid import SakuVid, VidNotFoundError
+from sakuvid import SakuVid, VidNotFoundError
 from booruinfo import BooruInfoPanel
 import cmdline
 import utils
@@ -24,7 +24,7 @@ class SakutoolFrame(wx.Frame):
         self.size = size = wx.Size(1024, 960)
         self.width, self.height = size.GetWidth(), size.GetHeight()
         style = wx.NO_BORDER | wx.TRANSPARENT_WINDOW #| wx.CAPTION | wx.CLOSE_BOX | wx.MINIMIZE_BOX
-        wx.Frame.__init__(self, parent=None, title='Sakutool v0.1 -- Niku.KK',
+        wx.Frame.__init__(self, parent=None, title='Sakutool v0.2 -- Niku.KK',
                           pos=wx.DefaultPosition, size=size,
                           style=style)
         self.Centre()
@@ -84,7 +84,15 @@ class SakutoolFrame(wx.Frame):
         keycode = cmdline.reformat(keycode, shiftdown)
         # print(keycode)
         if not self._is_loading:
-            self.cmd_panel.operate(keycode)
+            name, opt = self.cmd_panel.operate(keycode)
+            if name == 'booru input':
+                booru_ids = utils.search(self.path, opt)
+                if len(booru_ids) > 10:
+                    booru_ids = booru_ids[:10]
+                info = ''
+                if booru_ids:
+                    info = '  Local vids:\n    ' + '\n    '.join(booru_ids)
+                self.cmd_panel.add_info(info)
 
     def _onmouse(self, event):
         if event.ButtonDown():
@@ -149,6 +157,10 @@ class SakutoolFrame(wx.Frame):
         cmd_menu_root.new_func_item(name='last frame', key='j', ptr=self.renderer.last_frame)
         cmd_menu_root.new_func_item(name='next frame', key='k', ptr=self.renderer.next_frame)
         cmd_menu_root.new_func_item(name='switch fps', key='f', ptr=self.renderer.switch_fps, helpdoc='24/12/6')
+        cmd_menu_root.new_func_item(name='canny   ', key='c', ptr=self.renderer.switch_canny, helpdoc='')
+        cmd_menu_root.new_func_item(name='switch k', key='m', ptr=self.renderer.switch_k, helpdoc='1/2/3')
+        cmd_menu_root.new_func_item(name='switch onion', key='o', ptr=self.renderer.switch_onion, helpdoc='0/1/2/3')
+        cmd_menu_root.new_func_item(name='switch grid', key='g', ptr=self.renderer.switch_grid, helpdoc='')
         cmd_menu_root.new_func_item(name='save jpg', key='s', ptr=self.save_image, helpdoc='...')
         cmd_menu_root.new_func_item(name='exit', key='q', ptr=self.exit)
 

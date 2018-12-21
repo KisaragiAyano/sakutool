@@ -24,20 +24,28 @@ class CmdPanel(wx.Panel):
         self.cmds_list_text.SetForegroundColour(utils.LIGHT_GRAY)
         self.cmds_list_text.SetFont(wx.Font(9, family=wx.FONTFAMILY_MODERN,
                                             style=wx.FONTSTYLE_NORMAL, weight=wx.FONTWEIGHT_NORMAL))
+        self._ext_input = ''
 
     def operate(self, key):
         key = reformat(key)
         self.menu_ptr, opt_type = self.menu_ptr.operate(key)
         if opt_type in [OptType.MENU, OptType.INPUT]:
             self.refresh_info()
+        return self.menu_ptr.name, self.menu_ptr.opt
+
+    def add_info(self, s):
+        self._ext_input = s
+        self.refresh_info()
 
     def refresh_info(self):
         cmds_input = self.get_tree_info() + to_string(self.menu_ptr.opt) + '_'
         self.ext_print(cmds_input)
 
         cmds_list = '\n Command : name, Comment\n\n' + self.get_leaf_info()
+        cmds_list += self._ext_input
         self.cmds_list_text.SetLabel(cmds_list)
-        self.repos_cmds_list(cmds_list.count('\n'))
+        self.resize_cmds_list(cmds_list.count('\n'))
+        self._ext_input = ''
 
     def get_tree_info(self):
         strings = []
@@ -48,16 +56,20 @@ class CmdPanel(wx.Panel):
             strings.append('{}({})>'.format(to_string(key), name))
             ptr = ptr.parent
         return ' '.join(reversed(strings))
+
     def get_leaf_info(self):
-        strings = ''
+        info = ''
         ptr = self.menu_ptr
+        lines = []
         for key in ptr.items:
             name, helpdoc = ptr.get_item_info(key)
-            strings += '  {} : {}, {}\n'.format(to_string(key), name, helpdoc)
-        return strings
+            lines.append('  {} : {}, {}'.format(to_string(key), name, helpdoc))
+        if lines:
+            info = '\n'.join(lines)
+        return info
 
-    def repos_cmds_list(self, rows):
-        dh = rows * 14
+    def resize_cmds_list(self, rows):
+        dh = rows * 12 + 15
         self.cmds_list_text.SetPosition((0, self.height - dh))
 
 

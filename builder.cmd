@@ -1,2 +1,2 @@
-pyinstaller sakutool.py -i icon.ico -y
+pyinstaller -w sakutool.py -i icon.ico -y
 pause
