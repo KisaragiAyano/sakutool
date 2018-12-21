@@ -16,7 +16,7 @@ BG_LIGHT = wx.Colour(177, 177, 177)
 
 
 class Configer:
-    def __init__(self, path='../config.ini'):
+    def __init__(self, path='./config.ini'):
         self.path = path
         self.config = configparser.ConfigParser()
         init_flag = False
@@ -24,15 +24,15 @@ class Configer:
             init_flag = True
         else:
             try:
-                self.config.read('../config.ini')
+                self.config.read('./config.ini')
                 self.asset_path = self.config['DEFAULT']['PATH']
             except:
                 init_flag = True
 
         if init_flag:
-            with open('../config.ini', 'w') as configfile:
-                self.config['DEFAULT'] = {'PATH': '../asset/'}
-                self.asset_path = '../asset/'
+            with open('./config.ini', 'w') as configfile:
+                self.config['DEFAULT'] = {'PATH': './asset/'}
+                self.asset_path = './asset/'
                 self.config.write(configfile)
 
         # user_path = os.path.expanduser('~/')

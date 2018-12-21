@@ -18,3 +18,4 @@ builder.cmd
 __pycache__
 
 asset
+config.ini
