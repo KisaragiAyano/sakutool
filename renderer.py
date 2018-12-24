@@ -4,6 +4,8 @@ import threading
 import cv2
 import numpy as np
 import time
+from sakuvid import SakuVid, VidFile
+import utils
 
 
 class RenderThread(threading.Thread):
@@ -69,6 +71,8 @@ class Renderer(wx.Panel):
         #     dtype=np.uint8)
         # self._grid_img_white = wx.Bitmap.FromBufferRGBA(self.width, self.height, grid_img)
 
+        self._mode = None  # 0 for array vid, 1 for video path
+
         self._render_thread = None
         self.vid = None
         self._is_playing = False
@@ -79,6 +83,7 @@ class Renderer(wx.Panel):
         self._k = 2
         self._onion_num = 0
         self._onion_buffer = {}
+        self._resume_flag = False
 
         self._img_woff = None
         self._img_hoff = None
@@ -86,18 +91,25 @@ class Renderer(wx.Panel):
     def load_vid(self, vid):
         self.stop()
         self.vid = vid
-        self._img_woff = (self.width - self.vid.w)/2
-        self._img_hoff = (self.height - self.vid.h)/2
+        if isinstance(vid, SakuVid):
+            self._mode = 0
+        elif isinstance(vid, VidFile):
+            self._mode = 1
+
+        self._img_woff = (self.width - self.vid.w) / 2
+        self._img_hoff = (self.height - self.vid.h) / 2
 
         self._onion_buffer = {}
-        self._fps = 24.
+        self._fps = self.vid.fps
+        self._resume_flag = False
 
         # self.cur_frame()
         self._build_render_thread()
 
-
     def _build_render_thread(self):
-        self._render_thread = RenderThread(self._next_frame_render, fps=self._fps/self._k)
+        k = self._k if self._mode == 0 else 1
+        self._render_thread = RenderThread(self._next_frame_render, fps=self._fps / k)
+        self._render_thread.setDaemon(True)
         self._render_thread.start()
         self._is_playing = True
 
@@ -111,42 +123,35 @@ class Renderer(wx.Panel):
         if self._render_thread and self._is_playing:
             self._is_playing = False
             self._render_thread.pause()
+            return True
+        return False
 
     def stop(self):
         if self._render_thread:
             self._is_playing = False
             self._render_thread.stop()
             self._render_thread.join(2.)
-            self._render_thread.stop()
             self._render_thread = None
 
     def _next_frame_render(self):
         if self.vid and self._is_playing:
-            img = self.vid.next_frame(self._k)
-            self._render_frame()
-
-    def switch_fps(self):
-        if self.vid and self._render_thread:
-            if self._fps == 24.:
-                self._fps = 12.
-            elif self._fps == 12.:
-                self._fps = 6.
-            else:
-                self._fps = 24.
-            self._render_thread.set_fps(self._fps / self._k)
-        self.refresh_info()
+            img = self.vid.frame_next(self._k)
+            if self._mode == 0:
+                self._render_frame()
+            elif self._mode == 1:
+                self._render(img)
 
     # manual play
     def last_frame(self):
         if self.vid:
             self.pause()
-            img = self.vid.last_frame(self._k)
+            self.vid.shift_index(-self._k)
             self._render_frame()
 
     def next_frame(self):
         if self.vid:
             self.pause()
-            img = self.vid.next_frame(self._k)
+            self.vid.shift_index(self._k)
             self._render_frame()
 
     def cur_frame(self):
@@ -155,7 +160,33 @@ class Renderer(wx.Panel):
             # img = self.vid.cur_frame()
             self._render_frame()
 
+    def seek(self, p):
+        if self.vid:
+            res = self.pause()
+            if res:
+                self._resume_flag = True
+            n = int(p*self.vid.vid_frames)
+            self.vid.seek(n)
+            self._render_frame()
+
+    def resume(self):
+        if self._resume_flag and self.vid and not self._is_playing:
+            self._resume_flag = False
+            self.play_pause()
+
     # operation handler
+    def switch_fps(self):
+        if self.vid and self._render_thread:
+            if self._fps == self.vid.fps:
+                self._fps = self.vid.fps/2
+            elif self._fps == self.vid.fps/2:
+                self._fps = self.vid.fps/4
+            else:
+                self._fps = self.vid.fps
+            k = self._k if self._mode == 0 else 1
+            self._render_thread.set_fps(self._fps / k)
+            self.refresh_info()
+
     def switch_canny(self):
         self._canny_on = (self._canny_on + 1) % 3
         if not self._is_playing:
@@ -163,7 +194,8 @@ class Renderer(wx.Panel):
 
     def switch_k(self):
         self._k = self._k % 3 + 1
-        self._render_thread.set_fps(self._fps / self._k)
+        k = self._k if self._mode == 0 else 1
+        self._render_thread.set_fps(self._fps / k)
         if not self._is_playing:
             self.cur_frame()
 
@@ -179,30 +211,50 @@ class Renderer(wx.Panel):
 
     # info
     def refresh_info(self):
-        info_str = ' Playing Info \n\n'
-        info_str += 'FPS of playing: {}\n'.format(self._fps)
+        info = {}
+        info['mode'] = self._mode
+        info['fps'] = self._fps
         if self.vid:
-            info_str += 'No. of frames: {}/{}\n'.format(self.vid.cur_frame_index, self.vid.vid_frames)
+            info['cur_frame_index'] = self.vid.cur_frame_index
+            info['num_frames'] = self.vid.vid_frames
+        info['canny'] = self._canny_on
+        info['komas'] = self._k
+        info['onion'] = self._onion_num
+
+        info_str = ' Playing Info \n\n'
+        info_str += 'FPS of playing: {:.2f}\n'.format(self._fps)
+        if self.vid:
+
+            info_str += 'Time: {}/{}\n'.format(utils.sec2time(self.vid.cur_frame_index / self.vid.fps),
+                                               utils.sec2time(self.vid.vid_frames / self.vid.fps))
+            info_str += 'No. of frames: {:d}/{:d}\n'.format(self.vid.cur_frame_index, self.vid.vid_frames)
         else:
             pass
-        info_str += 'Canny Mode: {}\n'.format('On' if self._canny_on else 'Off')
+        info_str += 'Canny Mode: {}\n'.format(self._canny_on if self._canny_on else 'Off')
         info_str += 'Komas with \'j\'/\'k\': {}\n'.format(self._k)
-        info_str += 'Onion num: {}\n'.format(self._onion_num)
-        self.ext_print(info_str)
+        info_str += 'Onion num: {}\n'.format(self._onion_num if self._onion_num else 'Off')
+
+        self.ext_print(info_str, info)
 
     def _render_frame(self):
-        if not self._canny_on:
-            img = self._render_onion()
-        elif self._canny_on == 1:
-            img = self._render_onion_canny()
-            img_color = (img/255. * self.vid.cur_frame()).astype(np.uint8)
-            img = cv2.addWeighted(img, 0.5, img_color, 0.5, 0)
-        else:
-            canny = self._render_onion_canny()/255.
-            img = self._render_onion()
-            img_canny = (img * canny).astype(np.uint8)
-            img = cv2.addWeighted(img, 0.5, img_canny, 0.8, 0)
+        if self._mode == 0:
+            if not self._canny_on:
+                img = self._render_onion()
+            elif self._canny_on == 1:
+                img = self._render_onion_canny()
+                img_color = (img/255. * self.vid.get_current_frame()).astype(np.uint8)
+                img = cv2.addWeighted(img, 0.5, img_color, 0.5, 0)
+            else:
+                canny = self._render_onion_canny()/255.
+                img = self._render_onion()
+                img_canny = (img * canny).astype(np.uint8)
+                img = cv2.addWeighted(img, 0.5, img_canny, 0.8, 0)
+        elif self._mode == 1:
+            img = self.vid.get_current_frame()
 
+        self._render(img)
+
+    def _render(self, img):
         dc = wx.BufferedDC(wx.ClientDC(self), self._buffer)
         # dc.Clear()
         bitmap = wx.Bitmap.FromBuffer(self.vid.w, self.vid.h, img)

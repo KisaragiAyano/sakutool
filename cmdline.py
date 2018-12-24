@@ -24,10 +24,12 @@ class CmdPanel(wx.Panel):
         self.cmds_list_text.SetForegroundColour(utils.LIGHT_GRAY)
         self.cmds_list_text.SetFont(wx.Font(9, family=wx.FONTFAMILY_MODERN,
                                             style=wx.FONTSTYLE_NORMAL, weight=wx.FONTWEIGHT_NORMAL))
+        self.cmds_list_text.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.cmds_list_text.Bind(wx.EVT_MOUSE_EVENTS, utils.event_skip)
+
         self._ext_input = ''
 
     def operate(self, key):
-        key = reformat(key)
         self.menu_ptr, opt_type = self.menu_ptr.operate(key)
         if opt_type in [OptType.MENU, OptType.INPUT]:
             self.refresh_info()

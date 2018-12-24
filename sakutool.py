@@ -1,10 +1,11 @@
 import wx
 
-from sakuvid import SakuVid, VidNotFoundError
+from sakuvid import SakuVid, VidNotFoundError, VidFile
 from booruinfo import BooruInfoPanel
 import cmdline
 import utils
 from renderer import Renderer
+from timeline import TimelinePanel
 
 
 class SakutoolApp(wx.App):
@@ -39,10 +40,7 @@ class SakutoolFrame(wx.Frame):
         image_height = self.width*9//16
         self.renderer = Renderer(self.panel, self._pring_play_info, size=(self.width, image_height))
 
-        # TODO timeline panel class
-        self.timeline_panel = wx.Panel(self.panel, size=(self.width, 80))
-        self.timeline_panel.SetBackgroundColour(utils.BG_LIGHT)
-        timeline_title = wx.StaticText(self.timeline_panel, label='Timeline Panel: to be continued...')
+        self.timeline_panel = TimelinePanel(self.panel, size=(self.width, 80))
 
         info_height = self.height - image_height - 80 - 20 - 5
         self.cmd_panel = cmdline.CmdPanel(self.panel, self._print_status_bar, size=(200, info_height))
@@ -74,6 +72,8 @@ class SakutoolFrame(wx.Frame):
         self.vid = None
         self._is_loading = False
 
+        self._mouse_focus = None
+
         self.panel.SetSizerAndFit(sizer)
         self.build_cmd_panel()
         self._booru_panel_refresh()
@@ -82,7 +82,6 @@ class SakutoolFrame(wx.Frame):
         keycode = event.GetKeyCode()
         shiftdown = event.ShiftDown()
         keycode = cmdline.reformat(keycode, shiftdown)
-        # print(keycode)
         if not self._is_loading:
             name, opt = self.cmd_panel.operate(keycode)
             if name == 'booru input':
@@ -96,28 +95,68 @@ class SakutoolFrame(wx.Frame):
 
     def _onmouse(self, event):
         if event.ButtonDown():
-            self._drag_pos = event.GetPosition()
+            pass
         elif event.Dragging():
+            if self._mouse_focus == self.timeline_panel.progress_panel:
+                self.__seek()
+        elif event.ButtonUp():
+            if self._mouse_focus == self.timeline_panel.progress_panel:
+                self.renderer.resume()
+            self._mouse_focus = None
+
+    def _onmouse_drag(self, event):
+        if event.ButtonDown():
+            self._mouse_focus = self.status_bar
+            self._drag_pos = event.GetPosition()
+        elif event.Dragging() and self._mouse_focus == self.status_bar:
             cur_pos = event.GetPosition()
             frame_pos = self.GetPosition()
             pos = (frame_pos[0] + cur_pos[0] - self._drag_pos[0], frame_pos[1] + cur_pos[1] - self._drag_pos[1])
             self.SetPosition(pos)
         elif event.ButtonUp():
-            pass
+            self._mouse_focus = None
 
-    def _booru_panel_refresh(self):
+    def _onmouse_seek(self, event):
+        if event.ButtonDown():
+            self._mouse_focus = self.timeline_panel.progress_panel
+            self.__seek()
+        elif event.Dragging() and self._mouse_focus == self.timeline_panel.progress_panel:
+            self.__seek()
+        elif event.ButtonUp():
+            if self._mouse_focus == self.timeline_panel.progress_panel:
+                self.renderer.resume()
+            self._mouse_focus = None
+
+    def __seek(self):
         if self.vid:
-            self.booru_panel.update(info=self.vid.booru_info)
+            x = self.ScreenToClient(wx.GetMousePosition())[0]
+            p = x / self.timeline_panel.width
+            self.timeline_panel.set_progress(p)
+            self.renderer.seek(p)
 
     # handlers
-    def _pring_play_info(self, s):
-        self.info_play.SetLabel(s)
+    def _pring_play_info(self, info_str, info):
+        self.info_play.SetLabel(info_str)
+        progress = info['cur_frame_index']/info['num_frames']
+        self.timeline_panel.set_progress(progress)
 
     def _print_status_bar(self, s):
         # self.SetStatusText(s)
         self.status_bar.SetLabel(s)
 
     # --- ---
+    def _open_file(self):
+        files_filter = "Video (*.mp4;*.avi;*.webm)|*.mp4;*.avi;*.webm"
+        file_dialog = wx.FileDialog(self, message="", wildcard=files_filter, style=wx.FD_OPEN)
+        if file_dialog.ShowModal() != wx.ID_OK:
+            return
+        vid_path = file_dialog.GetPaths()[0]
+
+        self.renderer.pause()
+        self.vid = VidFile(vid_path)
+        self.renderer.load_vid(self.vid)
+        return True
+
     def _load_vid(self, booru_id):
         self.renderer.pause()
         flag = False
@@ -139,6 +178,10 @@ class SakutoolFrame(wx.Frame):
 
         return flag
 
+    def _booru_panel_refresh(self):
+        if self.vid:
+            self.booru_panel.update(info=self.vid.booru_info)
+
     # --- save
     def save_image(self):
         if self.vid:
@@ -152,11 +195,12 @@ class SakutoolFrame(wx.Frame):
         cmd_menu_booru_input = cmdline.CmdInput(parent=cmd_menu_root, name='booru input',
                                                 func=self._load_vid, allow=cmdline.is_num)
 
-        cmd_menu_root.new_menu_item(name='get vid', key='i', ptr=cmd_menu_booru_input, helpdoc='input booru id.')
+        cmd_menu_root.new_menu_item(name='open booru vid', key='i', ptr=cmd_menu_booru_input, helpdoc='input id.')
+        cmd_menu_root.new_func_item(name='open video', key='I', ptr=self._open_file, helpdoc='open video file.')
         cmd_menu_root.new_func_item(name='play/stop', key=' ', ptr=self.renderer.play_pause)
         cmd_menu_root.new_func_item(name='last frame', key='j', ptr=self.renderer.last_frame)
         cmd_menu_root.new_func_item(name='next frame', key='k', ptr=self.renderer.next_frame)
-        cmd_menu_root.new_func_item(name='switch fps', key='f', ptr=self.renderer.switch_fps, helpdoc='24/12/6')
+        cmd_menu_root.new_func_item(name='switch fps', key='f', ptr=self.renderer.switch_fps, helpdoc='1x/0.5x/0.25x')
         cmd_menu_root.new_func_item(name='canny   ', key='c', ptr=self.renderer.switch_canny, helpdoc='')
         cmd_menu_root.new_func_item(name='switch k', key='m', ptr=self.renderer.switch_k, helpdoc='1/2/3')
         cmd_menu_root.new_func_item(name='switch onion', key='o', ptr=self.renderer.switch_onion, helpdoc='0/1/2/3')
@@ -168,21 +212,23 @@ class SakutoolFrame(wx.Frame):
         return
 
     def _bind_all(self):
-        self.renderer.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.timeline_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.cmd_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.booru_panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.info_play.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.status_bar.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
-        self.status_bar.Bind(wx.EVT_MOUSE_EVENTS, self._onmouse)
-    # def _unbind_all(self):
-        # self.renderer.Unbind(wx.EVT_KEY_DOWN)
-        # self.timeline_panel.Unbind(wx.EVT_KEY_DOWN)
-        # self.cmd_panel.Unbind(wx.EVT_KEY_DOWN)
-        # self.booru_panel.Unbind(wx.EVT_KEY_DOWN)
-        # self.info_play.Unbind(wx.EVT_KEY_DOWN)
-        # self.status_bar.Unbind(wx.EVT_KEY_DOWN)
+        self.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.panel.Bind(wx.EVT_KEY_DOWN, self._onkeydown)
+        self.panel.Bind(wx.EVT_MOUSE_EVENTS, self._onmouse)
 
+        self.renderer.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.renderer.Bind(wx.EVT_MOUSE_EVENTS, utils.event_skip)
+        self.timeline_panel.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.timeline_panel.Bind(wx.EVT_MOUSE_EVENTS, utils.event_skip)
+        self.timeline_panel.progress_panel.Bind(wx.EVT_MOUSE_EVENTS, self._onmouse_seek)
+        self.cmd_panel.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.cmd_panel.Bind(wx.EVT_MOUSE_EVENTS, utils.event_skip)
+        self.booru_panel.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.booru_panel.Bind(wx.EVT_MOUSE_EVENTS, utils.event_skip)
+        self.info_play.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.info_play.Bind(wx.EVT_MOUSE_EVENTS, utils.event_skip)
+        self.status_bar.Bind(wx.EVT_KEY_DOWN, utils.event_skip)
+        self.status_bar.Bind(wx.EVT_MOUSE_EVENTS, self._onmouse_drag)
 
     def exit(self):
         self.renderer.stop()

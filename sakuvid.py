@@ -5,6 +5,7 @@ import wx
 import numpy as np
 
 import cv2
+from ffpyplayer.player import MediaPlayer
 
 
 def save_image(uri, im):
@@ -17,30 +18,107 @@ class VidNotFoundError(IOError):
         self.args = args
 
 
+class VidFile:
+    def __init__(self, path, maxsize=wx.Size(1024, 1024*9//16)):
+        self.vid = vid = cv2.VideoCapture(path)
+        # self.audio = MediaPlayer(path)
+        self.vid_frames = vid.get(cv2.CAP_PROP_FRAME_COUNT)
+        self.height = vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.width = vid.get(cv2.CAP_PROP_FRAME_WIDTH)
+        self.fps = vid.get(cv2.CAP_PROP_FPS)
+
+        self.cur_frame_index = 0
+
+        # scale
+        maxw, maxh = maxsize
+        w, h = self.width, self.height
+        self.w_scaled, self.h_scaled = None, None
+        if w > maxw or h > maxh:
+            ratio = w / maxw if w / maxw > h / maxh else h / maxh
+            self.w_scaled, self.h_scaled = int(w / ratio), int(h / ratio)
+
+    @property
+    def w(self):
+        return self.w_scaled if self.w_scaled else self.width
+
+    @property
+    def h(self):
+        return self.h_scaled if self.h_scaled else self.height
+
+    def get_current_frame(self):
+        img = self._read()
+        self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame_index)
+        return img
+
+    def get_relative_frame(self, n):
+        index = (self.cur_frame_index + n) % self.vid_frames
+        self.vid.set(cv2.CAP_PROP_POS_FRAMES, index)
+        img = self._read()
+        self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame_index)
+        return img
+
+    def shift_index(self, k=1):
+        self.cur_frame_index += k
+        self.cur_frame_index %= self.vid_frames
+
+    def seek(self, n):
+        self.cur_frame_index = n
+        self.cur_frame_index %= self.vid_frames
+
+    def frame_next(self, k=1):
+        img = self._read()
+        self.cur_frame_index = self.vid.get(cv2.CAP_PROP_POS_FRAMES)
+        if self.cur_frame_index >= self.vid_frames:
+            self.cur_frame_index = 0
+            self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame_index)
+        return img
+
+    def save_frame(self):
+        pass
+
+    def _read(self):
+        ret, img = self.vid.read()
+        if self.w_scaled:
+            img = cv2.resize(img, (self.w_scaled, self.h_scaled))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        return img
+
+    def release(self):
+        self.vid.release()
+
+
 class SakuVid:
     def __init__(self, booru_id, path='./asset/', maxsize=wx.Size(1024, 1024*9//16)):
         self.booru_id = booru_id
         self.path = path
         os.makedirs(path, exist_ok=True)
-        self.vid_arr, self.booru_info = load_vid(booru_id, path)
-        if not self.vid_arr:
+
+        self.booru_info, html = get_booru_info(booru_id)
+        vid_path = get_vid(booru_id, path, html)
+        if not vid_path:
             raise VidNotFoundError('')
             return
+        cap = cv2.VideoCapture(vid_path)
+        self.fps = cap.get(cv2.CAP_PROP_FPS)
+        self.height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
 
-        self.vid_frames = len(self.vid_arr)
-        self.height, self.width, self.nchannel = np.shape(self.vid_arr[0])
+        vid = []
+        while cap.isOpened():
+            ret, img = cap.read()
+            if not ret:
+                break
+            vid.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        cap.release()
+        # self.vid_arr, self.booru_info = load_vid(booru_id, path)
+        # if not self.vid_arr:
+        #     raise VidNotFoundError('')
+        #     return
+
+        self.vid_frames = len(vid)
         self.size = wx.Size(self.width, self.height)
 
-        # convert array to bitmap
-        # vid = []
-        # import time
-        # for image_arr in self.vid_arr:
-        #     t = time.time()
-        #     image = wx.Bitmap.FromBuffer(self.width, self.height, image_arr)
-        #     print(t-time.time())
-        #     vid.append(image)
-
-        self.vid = self.vid_arr
+        self.vid = vid
         self.cur_frame_index = 0
 
         # scale
@@ -49,12 +127,12 @@ class SakuVid:
         self.vid_scaled, self.w_scaled, self.h_scaled = None, None, None
         if w > maxw or h > maxh:
             ratio = w/maxw if w/maxw > h/maxh else h/maxh
-            w_scaled, h_scaled = w/ratio, h/ratio
+            w_scaled, h_scaled = int(w/ratio), int(h/ratio)
             vid = []
             for img in self.vid:
                 # image = wx.ImageFromBitmap(bitmap)
                 # image.Scale(w_scaled, h_scaled)
-                image = cv2.resize(img, (h_scaled, w_scaled))
+                image = cv2.resize(img, (w_scaled, h_scaled))
                 vid.append(image)
             self.vid_scaled, self.w_scaled, self.h_scaled = vid, w_scaled, h_scaled
 
@@ -66,25 +144,28 @@ class SakuVid:
     def h(self):
         return self.h_scaled if self.h_scaled else self.height
 
+    def get_current_frame(self):
+        vid = self.vid_scaled if self.vid_scaled else self.vid
+        return vid[self.cur_frame_index]
+
     def get_relative_frame(self, n):
         n = self.cur_frame_index + n
         n %= self.vid_frames
         vid = self.vid_scaled if self.vid_scaled else self.vid
         return vid[n]
 
-    def cur_frame(self):
-        vid = self.vid_scaled if self.vid_scaled else self.vid
-        return vid[self.cur_frame_index]
-
-    def next_frame(self, k=1):
+    def shift_index(self, k=1):
         self.cur_frame_index += k
         self.cur_frame_index %= self.vid_frames
-        return self.cur_frame()
 
-    def last_frame(self, k=1):
-        self.cur_frame_index -= k
+    def seek(self, n):
+        self.cur_frame_index = n
         self.cur_frame_index %= self.vid_frames
-        return self.cur_frame()
+
+    def frame_next(self, k=1):
+        img = self.get_current_frame()
+        self.shift_index(k)
+        return img
 
     def save_frame(self):
         uri = self.path + '{}/'.format(self.booru_id)
@@ -92,26 +173,26 @@ class SakuVid:
         index = self.cur_frame_index
         uri += '{}.jpg'.format(index)
         if not os.path.exists(uri):
-            im = self.vid_arr[index]
+            im = self.vid[index]
             save_image(uri=uri, im=im)
 
 
-def load_vid(booru_id, path='./asset/'):
-    booru_info, html = get_booru_info(booru_id)
-    vid_path = get_vid(booru_id, path, html)
-    if not vid_path:
-        return None, None
-
-    vid = []
-    vid_reader = cv2.VideoCapture(vid_path)
-    while(vid_reader.isOpened()):
-        ret, img = vid_reader.read()
-        if not ret:
-            break
-        vid.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    vid_reader.release()
-
-    return vid, booru_info
+# def load_vid(booru_id, path='./asset/'):
+#     booru_info, html = get_booru_info(booru_id)
+#     vid_path = get_vid(booru_id, path, html)
+#     if not vid_path:
+#         return None, None
+#
+#     vid = []
+#     vid_reader = cv2.VideoCapture(vid_path)
+#     while(vid_reader.isOpened()):
+#         ret, img = vid_reader.read()
+#         if not ret:
+#             break
+#         vid.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+#     vid_reader.release()
+#
+#     return vid, booru_info
 
 
 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36\
