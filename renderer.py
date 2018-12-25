@@ -71,7 +71,7 @@ class Renderer(wx.Panel):
         #     dtype=np.uint8)
         # self._grid_img_white = wx.Bitmap.FromBufferRGBA(self.width, self.height, grid_img)
 
-        self._mode = None  # 0 for array vid, 1 for video path
+        self._mode = 0  # 1 for array vid, 2 for video path
 
         self._render_thread = None
         self.vid = None
@@ -88,13 +88,17 @@ class Renderer(wx.Panel):
         self._img_woff = None
         self._img_hoff = None
 
+    @property
+    def mode(self):
+        return self._mode
+
     def load_vid(self, vid):
         self.stop()
         self.vid = vid
         if isinstance(vid, SakuVid):
-            self._mode = 0
-        elif isinstance(vid, VidFile):
             self._mode = 1
+        elif isinstance(vid, VidFile):
+            self._mode = 2
 
         self._img_woff = (self.width - self.vid.w) / 2
         self._img_hoff = (self.height - self.vid.h) / 2
@@ -107,7 +111,7 @@ class Renderer(wx.Panel):
         self._build_render_thread()
 
     def _build_render_thread(self):
-        k = self._k if self._mode == 0 else 1
+        k = self._k if self._mode == 1 else 1
         self._render_thread = RenderThread(self._next_frame_render, fps=self._fps / k)
         self._render_thread.setDaemon(True)
         self._render_thread.start()
@@ -134,38 +138,37 @@ class Renderer(wx.Panel):
             self._render_thread = None
 
     def _next_frame_render(self):
-        if self.vid and self._is_playing:
+        if self._mode and self._is_playing:
             img = self.vid.frame_next(self._k)
-            if self._mode == 0:
+            if self._mode == 1:
                 self._render_frame()
-            elif self._mode == 1:
+            elif self._mode == 2:
                 self._render(img)
 
     # manual play
     def last_frame(self):
-        if self.vid:
+        if self._mode:
             self.pause()
             self.vid.shift_index(-self._k)
             self._render_frame()
 
     def next_frame(self):
-        if self.vid:
+        if self._mode:
             self.pause()
             self.vid.shift_index(self._k)
             self._render_frame()
 
     def cur_frame(self):
-        if self.vid:
+        if self._mode:
             self.pause()
-            # img = self.vid.cur_frame()
             self._render_frame()
 
     def seek(self, p):
-        if self.vid:
+        if self._mode:
             res = self.pause()
             if res:
                 self._resume_flag = True
-            n = int(p*self.vid.vid_frames)
+            n = int(p*(self.vid.vid_frames-1))
             self.vid.seek(n)
             self._render_frame()
 
@@ -176,38 +179,59 @@ class Renderer(wx.Panel):
 
     # operation handler
     def switch_fps(self):
-        if self.vid and self._render_thread:
+        if self._mode and self._render_thread:
             if self._fps == self.vid.fps:
                 self._fps = self.vid.fps/2
             elif self._fps == self.vid.fps/2:
                 self._fps = self.vid.fps/4
             else:
                 self._fps = self.vid.fps
-            k = self._k if self._mode == 0 else 1
+            k = self._k if self._mode == 1 else 1
             self._render_thread.set_fps(self._fps / k)
             self.refresh_info()
 
     def switch_canny(self):
-        self._canny_on = (self._canny_on + 1) % 3
-        if not self._is_playing:
-            self.cur_frame()
+        if self._mode:
+            self._canny_on = (self._canny_on + 1) % 3
+            if not self._is_playing:
+                self.cur_frame()
 
     def switch_k(self):
-        self._k = self._k % 3 + 1
-        k = self._k if self._mode == 0 else 1
-        self._render_thread.set_fps(self._fps / k)
-        if not self._is_playing:
-            self.cur_frame()
+        if self._mode:
+            self._k = self._k % 3 + 1
+            k = self._k if self._mode == 1 else 1
+            self._render_thread.set_fps(self._fps / k)
+            if not self._is_playing:
+                self.cur_frame()
 
     def switch_onion(self):
-        self._onion_num = (self._onion_num + 1) % 4
-        if not self._is_playing:
-            self.cur_frame()
+        if self._mode:
+            self._onion_num = (self._onion_num + 1) % 4
+            if not self._is_playing:
+                self.cur_frame()
 
     def switch_grid(self):
-        self._grid_on = (self._grid_on + 1) % 2
-        if not self._is_playing:
-            self.cur_frame()
+        if self._mode:
+            self._grid_on = (self._grid_on + 1) % 2
+            if not self._is_playing:
+                self.cur_frame()
+
+    def set_start_progress(self, p):
+        if self._mode:
+            self.vid.start_index = int(p*(self.vid.vid_frames-1))
+
+    def set_end_progress(self, p):
+        if self._mode:
+            self.vid.end_index = int(p*(self.vid.vid_frames-1))
+
+    def save(self, name=None):
+        if self._mode == 1:
+            self.pause()
+            self.vid.save_frame()
+            self.next_frame()
+        elif self._mode == 2:
+            self.pause()
+            return self.vid.save_clip(name)
 
     # info
     def refresh_info(self):
@@ -224,10 +248,11 @@ class Renderer(wx.Panel):
         info_str = ' Playing Info \n\n'
         info_str += 'FPS of playing: {:.2f}\n'.format(self._fps)
         if self.vid:
-
             info_str += 'Time: {}/{}\n'.format(utils.sec2time(self.vid.cur_frame_index / self.vid.fps),
                                                utils.sec2time(self.vid.vid_frames / self.vid.fps))
-            info_str += 'No. of frames: {:d}/{:d}\n'.format(self.vid.cur_frame_index, self.vid.vid_frames)
+            info_str += 'No. of frames: {}/{}\n'.format(self.vid.cur_frame_index, self.vid.vid_frames-1)
+            info_str += 'Range: {} - {}\n'.format(self.vid.start_index, self.vid.end_index)
+            info_str += '\n'
         else:
             pass
         info_str += 'Canny Mode: {}\n'.format(self._canny_on if self._canny_on else 'Off')
@@ -237,7 +262,7 @@ class Renderer(wx.Panel):
         self.ext_print(info_str, info)
 
     def _render_frame(self):
-        if self._mode == 0:
+        if self._mode == 1:
             if not self._canny_on:
                 img = self._render_onion()
             elif self._canny_on == 1:
@@ -249,7 +274,7 @@ class Renderer(wx.Panel):
                 img = self._render_onion()
                 img_canny = (img * canny).astype(np.uint8)
                 img = cv2.addWeighted(img, 0.5, img_canny, 0.8, 0)
-        elif self._mode == 1:
+        elif self._mode == 2:
             img = self.vid.get_current_frame()
 
         self._render(img)

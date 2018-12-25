@@ -19,15 +19,19 @@ class VidNotFoundError(IOError):
 
 
 class VidFile:
-    def __init__(self, path, maxsize=wx.Size(1024, 1024*9//16)):
+    def __init__(self, path, save_path='./asset', maxsize=wx.Size(1024, 1024*9//16)):
         self.vid = vid = cv2.VideoCapture(path)
+        self.path = path
+        self.save_path = save_path
         # self.audio = MediaPlayer(path)
-        self.vid_frames = vid.get(cv2.CAP_PROP_FRAME_COUNT)
-        self.height = vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.width = vid.get(cv2.CAP_PROP_FRAME_WIDTH)
+        self.vid_frames = int(vid.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.fps = vid.get(cv2.CAP_PROP_FPS)
 
         self.cur_frame_index = 0
+        self.start_index = 0
+        self.end_index = self.vid_frames-1
 
         # scale
         maxw, maxh = maxsize
@@ -67,14 +71,28 @@ class VidFile:
 
     def frame_next(self, k=1):
         img = self._read()
-        self.cur_frame_index = self.vid.get(cv2.CAP_PROP_POS_FRAMES)
-        if self.cur_frame_index >= self.vid_frames:
-            self.cur_frame_index = 0
+        self.cur_frame_index = int(self.vid.get(cv2.CAP_PROP_POS_FRAMES))
+        if self.cur_frame_index-1 == self.end_index:
+            self.cur_frame_index = self.start_index
+        # if self.cur_frame_index >= self.vid_frames:
+        #     self.cur_frame_index = 0
             self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame_index)
         return img
 
-    def save_frame(self):
-        pass
+    def save_clip(self, name):
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        uri = self.save_path + '0{}.mp4'.format(name)
+        out = cv2.VideoWriter(uri, fourcc, self.fps, (self.w, self.h), isColor=True)
+        self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.start_index)
+        while self.vid.get(cv2.CAP_PROP_POS_FRAMES) <= self.end_index:
+            ret, frame = self.vid.read()
+            frame = cv2.resize(frame, (self.w, self.h))
+            if ret:
+                out.write(frame)
+        out.release()
+        self.vid.set(cv2.CAP_PROP_POS_FRAMES, self.cur_frame_index)
+        # self.release()
+        return True
 
     def _read(self):
         ret, img = self.vid.read()
@@ -100,8 +118,8 @@ class SakuVid:
             return
         cap = cv2.VideoCapture(vid_path)
         self.fps = cap.get(cv2.CAP_PROP_FPS)
-        self.height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        self.height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        self.width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 
         vid = []
         while cap.isOpened():
@@ -120,6 +138,8 @@ class SakuVid:
 
         self.vid = vid
         self.cur_frame_index = 0
+        self.start_index = 0
+        self.end_index = self.vid_frames-1
 
         # scale
         maxw, maxh = maxsize
@@ -164,7 +184,11 @@ class SakuVid:
 
     def frame_next(self, k=1):
         img = self.get_current_frame()
-        self.shift_index(k)
+        if self.cur_frame_index <= self.end_index and (self.cur_frame_index+k) > self.end_index:
+            self.cur_frame_index = self.start_index
+        else:
+            self.cur_frame_index += k
+        # self.shift_index(k)
         return img
 
     def save_frame(self):

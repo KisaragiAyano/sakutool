@@ -16,7 +16,7 @@ class CmdPanel(wx.Panel):
         self.ext_print = ext_print
         wx.Panel.__init__(self, parent, size=size)
 
-        self.menu_root = CmdMenu(None, name='root', items={})
+        self.menu_root = CmdMenu(None, name='root')
         self.menu_ptr = self.menu_root
 
         self.cmds_list_text = wx.StaticText(self, size=size)
@@ -29,42 +29,45 @@ class CmdPanel(wx.Panel):
 
         self._ext_input = ''
 
-    def operate(self, key):
-        self.menu_ptr, opt_type = self.menu_ptr.operate(key)
+        self.mode = 0
+
+    def operate(self, key, mode=0):
+        self.mode = mode
+        self.menu_ptr, opt_type = self.menu_ptr.operate(key, mode)
         if opt_type in [OptType.MENU, OptType.INPUT]:
-            self.refresh_info()
+            self.refresh_info(self.mode)
         return self.menu_ptr.name, self.menu_ptr.opt
 
-    def add_info(self, s):
+    def add_info(self, s, mode=0):
         self._ext_input = s
-        self.refresh_info()
+        self.refresh_info(mode)
 
-    def refresh_info(self):
-        cmds_input = self.get_tree_info() + to_string(self.menu_ptr.opt) + '_'
+    def refresh_info(self, mode=0):
+        cmds_input = self.get_tree_info(mode) + to_string(self.menu_ptr.opt) + '_'
         self.ext_print(cmds_input)
 
-        cmds_list = '\n Command : name, Comment\n\n' + self.get_leaf_info()
+        cmds_list = '\n Command : name, Comment\n\n' + self.get_leaf_info(mode)
         cmds_list += self._ext_input
         self.cmds_list_text.SetLabel(cmds_list)
         self.resize_cmds_list(cmds_list.count('\n'))
         self._ext_input = ''
 
-    def get_tree_info(self):
+    def get_tree_info(self, mode=0):
         strings = []
         ptr = self.menu_ptr.parent
         while ptr:
             key = ptr.opt
-            name, helpdoc = ptr.get_item_info(key)
+            name, helpdoc = ptr.get_item_info(key, mode)
             strings.append('{}({})>'.format(to_string(key), name))
             ptr = ptr.parent
         return ' '.join(reversed(strings))
 
-    def get_leaf_info(self):
+    def get_leaf_info(self, mode=0):
         info = ''
         ptr = self.menu_ptr
         lines = []
-        for key in ptr.items:
-            name, helpdoc = ptr.get_item_info(key)
+        for key in ptr.items(mode):
+            name, helpdoc = ptr.get_item_info(key, mode)
             lines.append('  {} : {}, {}'.format(to_string(key), name, helpdoc))
         if lines:
             info = '\n'.join(lines)
@@ -76,15 +79,23 @@ class CmdPanel(wx.Panel):
 
 
 class CmdMenu(object):
-    def __init__(self, parent, name, items={}):
+    def __init__(self, parent, name):
         self.parent = parent
         self.name = name
-        self.items = items
+        # self.items = items
+        self.mode_items = {0: {}}
         self.opt = None
 
         self.helpdoc = ''
 
-    def operate(self, key):
+    def items(self, mode=0):
+        if mode in self.mode_items:
+            return self.mode_items[mode]
+        else:
+            return {}
+
+    def operate(self, key, mode=0):
+        items = self.items(mode)
         if is_esc(key):
             self.esc()
             if self.parent:
@@ -99,8 +110,8 @@ class CmdMenu(object):
             else:
                 return self, OptType.NULL
         elif is_text(key):
-            if key in self.items:
-                item = self.items[key]
+            if key in items:
+                item = items[key]
                 if isinstance(item, CmdFuncItem):
                     self.opt = None
                     ptr = item()
@@ -116,18 +127,24 @@ class CmdMenu(object):
     def back(self):
         self.opt = None
 
-    def add_item(self, item):
-        self.items[item.key] = item
-    def new_menu_item(self, name, key, ptr, helpdoc='...'):
+    def add_item(self, item, mode=0):
+        if isinstance(mode, int):
+            mode = [mode]
+        for m in mode:
+            if m not in self.mode_items:
+                self.mode_items[m] = {}
+            self.mode_items[m][item.key] = item
+    def new_menu_item(self, name, key, ptr, mode=0, helpdoc='...'):
         item = CmdMenuItem(self, name, key, ptr, helpdoc=helpdoc)
-        self.add_item(item)
-    def new_func_item(self, name, key, ptr, helpdoc='...'):
+        self.add_item(item, mode)
+    def new_func_item(self, name, key, ptr, mode=0, helpdoc='...'):
         item = CmdFuncItem(self, name, key, ptr, helpdoc=helpdoc)
-        self.add_item(item)
+        self.add_item(item, mode)
 
-    def get_item_info(self, key):
-        if key in self.items:
-            item = self.items[key]
+    def get_item_info(self, key, mode=0):
+        items = self.items(mode)
+        if key in items:
+            item = items[key]
             return item.name, item.helpdoc
 
 
@@ -141,11 +158,17 @@ class CmdInput(object):
         self.min_len = min_len
         self.max_len = max_len
 
-        self.items = {}
+        self.mode_items = {0: {}}
         self.opt = ''
         self.helpdoc = ''
 
-    def operate(self, key):
+    def items(self, mode=0):
+        if mode in self.mode_items:
+            return self.mode_items[mode]
+        else:
+            return {}
+
+    def operate(self, key, mode=0):
         if is_esc(key):
             self.esc()
             self.parent.esc()
@@ -181,7 +204,7 @@ class CmdInput(object):
         if self.opt:
             self.opt = self.opt[:-1]
 
-    def get_item_info(self, key):
+    def get_item_info(self, key, mode=0):
         return '', ''
 
 
@@ -192,22 +215,27 @@ class CmdItem(object):
         if isinstance(key, str):
             self.key = ord(key)
         self.ptr = ptr
+        # self.mode_ptr = {0: ptr}
         self.helpdoc = helpdoc
 class CmdMenuItem(CmdItem):
-    def __call__(self, *args, **kwargs):
+    def __call__(self):
         # key = args[0]
         # if key == self.key:
         #     return self.ptr
         # return False
-        return self.ptr
+        # ptr = self.mode_ptr[mode]
+        ptr = self.ptr
+        return ptr
 class CmdFuncItem(CmdItem):
-    def __call__(self, *args, **kwargs):
+    def __call__(self):
         # key = args[0]
         # if key == self.key:
         #     self.ptr()
         #     return True
         # return False
-        self.ptr()
+        # ptr = self.mode_ptr[mode]
+        ptr = self.ptr
+        ptr()
         return self.parent
 
 
