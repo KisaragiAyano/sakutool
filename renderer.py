@@ -219,10 +219,12 @@ class Renderer(wx.Panel):
     def set_start_progress(self, p):
         if self._mode:
             self.vid.start_index = int(p*(self.vid.vid_frames-1))
+            self.refresh_info()
 
     def set_end_progress(self, p):
         if self._mode:
             self.vid.end_index = int(p*(self.vid.vid_frames-1))
+            self.refresh_info()
 
     def save(self, name=None):
         if self._mode == 1:

@@ -83,7 +83,9 @@ class SakutoolFrame(wx.Frame):
         keycode = cmdline.reformat(keycode, shiftdown)
         if not self._is_loading:
             name, opt = self.cmd_panel.operate(keycode, mode=self.renderer.mode)
-            if name == 'booru input':
+            if name in ['booru input', 'save input']:
+                if name == 'save input':
+                    opt = '0'+opt
                 booru_ids = utils.search(self.path, opt)
                 if len(booru_ids) > 10:
                     booru_ids = booru_ids[:10]
